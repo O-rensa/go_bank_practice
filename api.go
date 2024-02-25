@@ -10,8 +10,8 @@ import (
 )
 
 func WriteJSON(w http.ResponseWriter, status int, v any) error {
+	w.Header().Add("Content-Type", "application/json")
 	w.WriteHeader(status)
-	w.Header().Set("Content-Type", "application/json")
 	return json.NewEncoder(w).Encode(v)
 }
 
@@ -31,11 +31,13 @@ func makeHTTPHandleFunc(f apiFunc) http.HandlerFunc {
 
 type APIServer struct {
 	listenAddr string
+	store      Storage
 }
 
-func NewAPIServer(listenAddr string) *APIServer {
+func NewAPIServer(listenAddr string, store Storage) *APIServer {
 	return &APIServer{
 		listenAddr: listenAddr,
+		store:      store,
 	}
 }
 
@@ -43,6 +45,7 @@ func (s *APIServer) Run() {
 	router := mux.NewRouter()
 
 	router.HandleFunc("/account", makeHTTPHandleFunc(s.handleAccount))
+	router.HandleFunc("/account/{id}", makeHTTPHandleFunc(s.handleGetAccountByID))
 
 	log.Println("JSON API server running on port: ", s.listenAddr)
 
@@ -55,20 +58,42 @@ func (s *APIServer) handleAccount(w http.ResponseWriter, r *http.Request) error 
 		return s.handleGetAccount(w, r)
 	case "POST":
 		return s.handleCreateAccount(w, r)
-	case "DELTE":
+	case "DELETE":
 		return s.handleDeleteAccount(w, r)
 	default:
 		return fmt.Errorf("method not allow %s", r.Method)
 	}
 }
 
-func (s *APIServer) handleGetAccount(w http.ResponseWriter, r *http.Request) error {
-	account := NewAccount("Jason", "Bourne")
+func (s *APIServer) handleGetAccountByID(w http.ResponseWriter, r *http.Request) error {
+	id := mux.Vars(r)["id"]
 
-	return WriteJSON(w, http.StatusOK, account)
+	fmt.Println(id)
+
+	return WriteJSON(w, http.StatusOK, &Account{})
+}
+
+func (s *APIServer) handleGetAccount(w http.ResponseWriter, r *http.Request) error {
+	accounts, err := s.store.GetAccounts()
+	if err != nil {
+		return err
+	}
+
+	return WriteJSON(w, http.StatusOK, accounts)
 }
 
 func (s *APIServer) handleCreateAccount(w http.ResponseWriter, r *http.Request) error {
+	createAccountReq := new(CreateAccountRequest)
+	if err := json.NewDecoder(r.Body).Decode(createAccountReq); err != nil {
+		return err
+	}
+
+	account := NewAccount(createAccountReq.FirstName, createAccountReq.LastName)
+
+	if err := s.store.CreateAccount(account); err != nil {
+		return err
+	}
+
 	return nil
 }
 
